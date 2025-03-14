@@ -1,5 +1,4 @@
 from fastapi import APIRouter, status
-from fastapi.params import Depends
 
 from app.user.dto.request import SignUp, SignIn
 from app.user import service
@@ -12,7 +11,7 @@ router = APIRouter(tags=['USER'])
     path="/sign-up",
     description='## ✔️️ [회원 가입] \n'
                 '''
-                ** Request Detail
+                ## Request Detail ##
                 - user_id : 유저 ID
                 - is_admin : 관리자 여부 (True = 관리자 / False = 일반 사용자)\n
                 ''',
@@ -51,7 +50,7 @@ def signup(
     path='/sign-in',
     description='## ✔️️ [로그인] \n'
                 '''
-                ** Request Detail
+                ## Request Detail ##
                 - user_id : 유저 ID
                 ''',
     responses={

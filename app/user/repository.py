@@ -1,15 +1,18 @@
+from sqlalchemy import select, func
+
 from app.config.database import database
 from app.config.model import User
 
 
 def user_sign_up(user_id, is_admin):
+    user_stmt = (
+        select(func.count(User.id))
+        .where(User.user_id == user_id)
+    )
+
     with database.session_factory() as db:
         # 아이디 중복 체크
-        if (
-                db.query(User)
-                .filter(User.user_id == user_id)
-                .count() != 0
-        ):
+        if db.execute(user_stmt).scalar() != 0:
             return False
 
         db.add(User(
@@ -21,13 +24,14 @@ def user_sign_up(user_id, is_admin):
 
 
 def get_user_by_user_id(user_id):
+    user_stmt = (
+        select(func.count(User.id))
+        .where(User.user_id == user_id)
+    )
+
     with database.session_factory() as db:
         # 아이디 존재 여부 확인
-        if (
-                db.query(User)
-                .filter(User.user_id == user_id)
-                .count() != 1
-        ):
+        if db.execute(user_stmt).scalar() != 1:
             return False
 
         return db.query(User).filter(User.user_id == user_id).one()

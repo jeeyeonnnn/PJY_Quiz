@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 import jwt
-from fastapi import HTTPException, Security, Depends, Header
+from fastapi import HTTPException, Security
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from app.config.database import database
@@ -34,8 +34,8 @@ class AuthHandler:
         return self.decode_token(auth.credentials)
 
     @staticmethod
-    async def get_user(user_idx):
-        async with database.session_factory() as db:
-            return await db.query(User).filter(User.id == user_idx).one()
+    def get_user(user_idx):
+        with database.session_factory() as db:
+            return db.query(User).filter(User.id == user_idx).one()
 
 auth = AuthHandler()

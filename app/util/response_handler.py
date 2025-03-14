@@ -1,4 +1,6 @@
-from starlette import status
+from typing import Union
+
+from fastapi import status
 from starlette.responses import JSONResponse
 
 
@@ -11,7 +13,7 @@ class ResponseHandler:
         )
 
     @staticmethod
-    def post_exception(code: status, message: str):
+    def post_exception(code, message: str):
         return JSONResponse(
             status_code=code,
             content={'message': message}

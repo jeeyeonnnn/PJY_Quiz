@@ -22,6 +22,7 @@ class Quiz(Base):
     name: Mapped[str] = mapped_column(String, nullable=False, doc='퀴즈 이름')
     q_count: Mapped[int] = mapped_column(Integer, nullable=False, doc='해당 퀴즈의 총 문제 수')
     s_count: Mapped[int] = mapped_column(Integer, nullable=False, doc='문제 출제 수 (관리자가 설정)')
+    p_count: Mapped[int] = mapped_column(Integer, nullable=False, doc='한 목록에 보여질 문제 수 (관리자가 설정)')
     is_random: Mapped[bool] = mapped_column(BOOLEAN, nullable=False, default=False, doc='랜덤 출제 여부')
 
 
@@ -63,3 +64,27 @@ class QuestionLog(Base):
 
     user = relationship("User", backref=backref("question_log"))
     question = relationship("Question", backref=backref("question_log"))
+
+
+class QuizVersion(Base):
+    __tablename__ = "quiz_version"
+    __table_args__ = {'schema': 'pro'}
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    quiz_id: Mapped[int] = mapped_column(ForeignKey("pro.quiz.id"), nullable=False, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    question_ids: Mapped[str] = mapped_column(TEXT, nullable=False, doc='문제 순서')
+    selection_info: Mapped[str] = mapped_column(TEXT, nullable=False, doc='문제 별 보기 순서')
+
+    quiz = relationship("Quiz", backref=backref("quiz_version"))
+
+
+class PreSave(Base):
+    __tablename__ = "pre_save"
+    __table_args__ = {'schema': 'pro'}
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    quiz_id: Mapped[int] = mapped_column(ForeignKey("pro.quiz.id"), nullable=False, index=True)
+    quiz_version_id: Mapped[int] = mapped_column(ForeignKey("pro.quiz_version.id"), nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("pro.user.id"), nullable=False, index=True)
+    answer: Mapped[str] = mapped_column(TEXT, nullable=False, doc='문제 순서')
