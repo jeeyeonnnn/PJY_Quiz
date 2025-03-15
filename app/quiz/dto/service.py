@@ -27,5 +27,9 @@ class SelectionInfoService(BaseModel):
 class QuestionInfoService(BaseModel):
     id: int
     name: str
-    user_answer: Optional[List[int]] = None
     selections: List[SelectionInfoService]
+
+
+class UserAnswerInfo(BaseModel):
+    question_id: int
+    selection_ids: List[int]

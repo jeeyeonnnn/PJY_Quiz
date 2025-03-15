@@ -19,6 +19,6 @@ class Setting:
 
     @property
     def get_db_url(self):
-        return f'postgresql://{self.DB_USER}:{self.DB_PW}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}?options=-csearch_path=pro'
+        return f'postgresql+asyncpg://{self.DB_USER}:{self.DB_PW}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}'
 
 setting = Setting()

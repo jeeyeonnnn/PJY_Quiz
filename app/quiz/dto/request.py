@@ -72,7 +72,7 @@ class QuizInfo(BaseModel):
             }
         }
 
-class QuizPreSaveRequest(BaseModel):
+class QuizSubmitRequest(BaseModel):
     question_id: int
     selection_ids: List[int]
 

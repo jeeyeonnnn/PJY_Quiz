@@ -2,7 +2,7 @@ from typing import List, Optional
 
 from pydantic import BaseModel
 
-from app.quiz.dto.service import QuizInfo, QuestionInfoService
+from app.quiz.dto.service import QuizInfo, QuestionInfoService, UserAnswerInfo
 from app.util.pagination import pagination
 
 
@@ -41,6 +41,7 @@ class QuizDetail(BaseModel):
     is_random: bool
     correct_question_count: int
     page: pagination.Page
+    user_answers: Optional[List[UserAnswerInfo]] = None
     questions: List[QuestionInfoService]
 
     class Config:

@@ -38,10 +38,10 @@ router = APIRouter(tags=['USER'])
         }
     }
 )
-def signup(
+async def signup(
         request: SignUp
 ):
-    if service.user_sign_up(request.user_id, request.is_admin):
+    if await service.user_sign_up(request.user_id, request.is_admin):
         return res.post_success()
     return res.post_exception(status.HTTP_409_CONFLICT, '이미 사용 중인 아이디입니다.')
 
@@ -76,12 +76,12 @@ def signup(
         }
     }
 )
-def signin(
+async def signin(
         request: SignIn
 ):
-    user = service.get_user_by_user_id(request.user_id)
+    user = await service.get_user_by_user_id(request.user_id)
 
     if not user:  # 유저 존재 X
         return res.post_exception(status.HTTP_409_CONFLICT, '존재하지 않은 아이디입니다.')
 
-    return res.post_custom('token', f'Bearer {auth.encode_token(user.id)}')
+    return res.post_custom('token', f'Bearer {await auth.encode_token(user.id)}')

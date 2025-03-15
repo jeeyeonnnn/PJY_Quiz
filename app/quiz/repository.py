@@ -1,18 +1,17 @@
 import json
-from typing import List, Optional
+from typing import List
 
-from sqlalchemy import update
-from sqlalchemy.sql import func, select, case, or_
-from sqlalchemy.types import JSON
+from sqlalchemy import update, desc
+from sqlalchemy.sql import func, select, case
 
 from app.config.database import database
-from app.config.model import Quiz, Question, Selection, User, QuestionLog, QuizVersion, PreSave
-from app.quiz.dto.request import QuestionInfoRequest
+from app.config.model import Quiz, Question, Selection, QuestionLog, QuizVersion, PreSave
+from app.quiz.dto.request import QuestionInfoRequest, QuizSubmitRequest
 
 
-def save_new_quiz(
+async def save_new_quiz(
         name: str, select_count: int, pagination_count:int, is_random: bool, questions: List[QuestionInfoRequest]
-):
+) -> int:
     # 문제가 존재하지 않은 경우
     if len(questions) == 0:
         return -1
@@ -22,7 +21,7 @@ def save_new_quiz(
         return -2
 
 
-    with database.session_factory() as db:
+    async with database.session_factory() as db:
         new_quiz = Quiz(
             name=name,
             q_count=len(questions),
@@ -32,7 +31,7 @@ def save_new_quiz(
         )
 
         db.add(new_quiz)
-        db.flush()
+        await db.flush()
 
         for question_idx in range(len(questions)):
             q_name, selections = questions[question_idx].name, questions[question_idx].selections
@@ -43,7 +42,7 @@ def save_new_quiz(
                 sequence=question_idx+1
             )
             db.add(new_question)
-            db.flush()
+            await db.flush()
 
             # 보기가 2개 미만인 경우
             if len(selections) < 2:
@@ -66,12 +65,12 @@ def save_new_quiz(
             if not is_exist_answer:
                 return -4
 
-        db.commit()
+        await db.commit()
         return new_quiz.id
 
 
-def get_all_quiz_by_auth_and_limit(limit, page, user_idx, is_admin):
-    quiz_stmt = (
+async def get_all_quiz_by_auth_and_limit(limit: int, page: int, user_idx: int, is_admin: bool):
+    quiz_sql = (
         select(
             Quiz.id.label("id"),
             Quiz.name.label("name"),
@@ -82,17 +81,27 @@ def get_all_quiz_by_auth_and_limit(limit, page, user_idx, is_admin):
 
             # 관리자인 경우 null / 퀴즈를 안 푼 경우 0 / 푼 경우 1 / 임시 저장 2
             case(
-                (is_admin == 1, None),
+                (is_admin == True, None),
                 (
                     func.exists(
                         select(1).select_from(QuestionLog)
                         .join(Question, QuestionLog.question_id == Question.id)
                         .where(
                             QuestionLog.user_id == user_idx,
-                            QuestionLog.question_id == Question.id
+                            Question.quiz_id == Quiz.id
                         ).scalar_subquery()
                     ),
-                    1  # QuestionLog에 존재 == 퀴즈를 푼 적이 있음
+                    1  # QuestionLog에 존재 == 퀴즈를 최종 제출한 이력이 있음
+                ),
+                (
+                    func.exists(
+                        select(1).select_from(PreSave)
+                        .where(
+                            PreSave.user_id == user_idx,
+                            PreSave.quiz_id == Quiz.id
+                        ).scalar_subquery()
+                    ),
+                    2  # PreSave 존재 == 중간 저장 혹은 해당 퀴즈의 상세 페이지에 접근한 적이 있음
                 ),
                 else_=0  # 그 외 상태 0
             ).label("status")
@@ -100,18 +109,21 @@ def get_all_quiz_by_auth_and_limit(limit, page, user_idx, is_admin):
         .select_from(Question)
         .join(Quiz, Question.quiz_id == Quiz.id)
         .group_by(Quiz.id)
+        .order_by(desc(Quiz.id))
         .offset((page-1) * limit)
         .limit(limit)
     )
 
-    with database.session_factory() as db:
-        total_quiz_count = db.execute(
+    async with database.session_factory() as db:
+        result = await db.execute(
             select(func.count(Quiz.id))
-        ).scalar()
-        return total_quiz_count, db.execute(quiz_stmt).fetchall()
+        )
+        quiz_result = await db.execute(quiz_sql)
+
+        return result.scalar(), quiz_result.fetchall()
 
 
-def get_quiz_info_by_id_and_user(quiz_id: int):
+async def get_quiz_info_by_id(quiz_id: int):
     questions_stmt = (
         select(
             Question.id.label("id"),
@@ -121,11 +133,12 @@ def get_quiz_info_by_id_and_user(quiz_id: int):
         .order_by(Question.sequence)
     )
 
-    with database.session_factory() as db:
-        return db.execute(questions_stmt).fetchall()
+    async with database.session_factory() as db:
+        result = await db.execute(questions_stmt)
+        return result.fetchall()
 
 
-def get_quiz_info_by_id(quiz_id, user_idx, is_admin):
+async def get_quiz_info_by_id_and_user(quiz_id: int, user_idx: int, is_admin: bool):
     quiz_stmt = (
         select(
             Quiz.name,
@@ -133,7 +146,7 @@ def get_quiz_info_by_id(quiz_id, user_idx, is_admin):
             Quiz.s_count,
             Quiz.p_count,
             Quiz.is_random,
-            # 관리자인 경우 null / 퀴즈를 안 푼 경우 0 / 푼 경우 1 / 임시 저장 2
+            # status : 관리자인 경우 null / 퀴즈를 안 푼 경우 0 / 푼 경우 1 / 임시 저장 2
             case(
                 (is_admin == True, None),
                 (
@@ -149,6 +162,7 @@ def get_quiz_info_by_id(quiz_id, user_idx, is_admin):
                 ),
                 else_=0  # 그 외 상태 0
             ).label("status"),
+            # correct_question_count : 유저 별 해당 퀴즈에서 맞힌 문제 수
             (
                 select(
                     func.count(QuestionLog.id)
@@ -166,11 +180,12 @@ def get_quiz_info_by_id(quiz_id, user_idx, is_admin):
         .group_by(Quiz.id)
     )
 
-    with database.session_factory() as db:
-        return db.execute(quiz_stmt).fetchone()
+    async with database.session_factory() as db:
+        result = await db.execute(quiz_stmt)
+        return result.fetchone()
 
 
-def get_selections_by_question_id_and_is_random(question_id, is_random):
+async def get_selections_by_question_id_and_is_random(question_id: int):
     stmt = (
         select(
             Selection.id.label("id"),
@@ -181,11 +196,12 @@ def get_selections_by_question_id_and_is_random(question_id, is_random):
         .order_by(Selection.sequence)
     )
 
-    with database.session_factory() as db:
-        return db.execute(stmt).fetchall()
+    async with database.session_factory() as db:
+        result = await db.execute(stmt)
+        return result.fetchall()
 
 
-def get_quiz_is_random_and_question_ids_by_quiz_id(quiz_id: int):
+async def get_quiz_is_random_and_question_ids_by_quiz_id(quiz_id: int):
     quiz_stmt = (
         select(Quiz.is_random, Quiz.s_count)
         .select_from(Quiz)
@@ -198,43 +214,48 @@ def get_quiz_is_random_and_question_ids_by_quiz_id(quiz_id: int):
         .where(Question.quiz_id == quiz_id)
     )
 
-    with database.session_factory() as db:
-        is_random, s_count = db.execute(quiz_stmt).fetchone()
-        question_ids = db.execute(question_stmt).scalars().all()
+    async with database.session_factory() as db:
+        quiz_result = await db.execute(quiz_stmt)
+        question_result = await db.execute(question_stmt)
+
+        is_random, s_count = quiz_result.fetchone()
+        question_ids = question_result.scalars().all()
 
     return is_random, s_count, question_ids
 
 
-def get_selection_ids_by_question_id(question_id: int):
+async def get_selection_ids_by_question_id(question_id: int):
     stmt = (
         select(Selection.id)
         .where(Selection.question_id == question_id)
     )
 
-    with database.session_factory() as db:
-        return db.execute(stmt).scalars().all()
+    async with database.session_factory() as db:
+        result = await db.execute(stmt)
+        return result.scalars().all()
 
 
-def add_quiz_version(quiz_id, version_num, question_info, selection_info):
-    with database.session_factory() as db:
+async def add_quiz_version(quiz_id: int, version_num: int, question_info: List, selection_info: dict):
+    async with database.session_factory() as db:
         db.add(QuizVersion(
             quiz_id=quiz_id,
             version=version_num,
             question_ids=json.dumps(question_info),
             selection_info=json.dumps(selection_info)
         ))
-        db.commit()
+        await db.commit()
 
 
-def get_max_quiz_version_by_quiz_id(quiz_id):
-    with database.session_factory() as db:
-        return db.execute(
+async def get_max_quiz_version_by_quiz_id(quiz_id: int):
+    async with database.session_factory() as db:
+        result = await db.execute(
             select(func.max(QuizVersion.version))
             .where(QuizVersion.quiz_id == quiz_id)
-        ).scalar()
+        )
+        return result.scalar()
 
 
-def update_quiz_version_by_user(user_idx, quiz_id, version_num):
+async def update_quiz_version_by_user(user_idx: int, quiz_id: int, version_num: int):
     stmt = (
         select(QuizVersion.id)
         .where(
@@ -243,8 +264,9 @@ def update_quiz_version_by_user(user_idx, quiz_id, version_num):
         )
     )
 
-    with database.session_factory() as db:
-        quiz_version_id = db.execute(stmt).scalar_one()
+    async with database.session_factory() as db:
+        result = await db.execute(stmt)
+        quiz_version_id = result.scalar_one()
 
         db.add(PreSave(
             user_id=user_idx,
@@ -252,10 +274,10 @@ def update_quiz_version_by_user(user_idx, quiz_id, version_num):
             quiz_version_id=quiz_version_id,
             answer=None
         ))
-        db.commit()
+        await db.commit()
 
 
-def not_exist_pre_save_by_quiz_and_user_idx(quiz_id, user_idx):
+async def not_exist_pre_save_by_quiz_and_user_idx(quiz_id: int, user_idx: int):
     stmt = (
         select(func.count(PreSave.id))
         .where(
@@ -264,13 +286,14 @@ def not_exist_pre_save_by_quiz_and_user_idx(quiz_id, user_idx):
         )
     )
 
-    with database.session_factory() as db:
-        count = db.execute(stmt).scalar_one()
+    async with database.session_factory() as db:
+        result = await db.execute(stmt)
+        count = result.scalar_one()
 
     return True if count == 0 else False
 
 
-def get_quiz_version_by_quiz_id_and_user_id(quiz_id, user_idx):
+async def get_quiz_version_by_quiz_id_and_user_id(quiz_id: int, user_idx: int):
     stmt = (
         select(
             QuizVersion.question_ids,
@@ -285,11 +308,12 @@ def get_quiz_version_by_quiz_id_and_user_id(quiz_id, user_idx):
         )
     )
 
-    with database.session_factory() as db:
-        return db.execute(stmt).fetchone()
+    async with database.session_factory() as db:
+        result = await db.execute(stmt)
+        return result.fetchone()
 
 
-def get_question_info_by_ids(question_ids):
+async def get_question_info_by_ids(question_ids: List[int]):
     stmt = (
         select(
             Question.id,
@@ -307,24 +331,12 @@ def get_question_info_by_ids(question_ids):
         )
     )
 
-    with database.session_factory() as db:
-        return db.execute(stmt).fetchall() if len(question_ids) != 0 else []
+    async with database.session_factory() as db:
+        result = await db.execute(stmt)
+        return result.fetchall() if len(question_ids) != 0 else []
 
 
-def get_final_answer_by_question_id_and_user_id(question_id, user_idx):
-    stmt = (
-        select(QuestionLog.user_answer)
-        .where(
-            QuestionLog.question_id == question_id,
-            QuestionLog.user_id == user_idx
-        )
-    )
-
-    with database.session_factory() as db:
-        return db.execute(stmt).scalar_one_or_none()
-
-
-def get_selection_info_by_ids(selection_ids):
+async def get_selection_info_by_ids(selection_ids: List[int]):
     stmt = (
         select(
             Selection.id,
@@ -343,22 +355,12 @@ def get_selection_info_by_ids(selection_ids):
         )
     )
 
-    with database.session_factory() as db:
-        return db.execute(stmt).fetchall()
+    async with database.session_factory() as db:
+        result = await db.execute(stmt)
+        return result.fetchall()
 
 
-def get_question_ids_by_quiz_id(quiz_id):
-    stmt = (
-        select(Question.id)
-        .where(Question.quiz_id == quiz_id)
-        .order_by(Question.sequence)
-    )
-
-    with database.session_factory() as db:
-        return db.execute(stmt).scalars().all()
-
-
-def is_exist_submit_log(quiz_id: int, user_idx: int):
+async def is_exist_submit_log(quiz_id: int, user_idx: int):
     stmt = (
         select(func.count(QuestionLog.id))
         .select_from(QuestionLog)
@@ -369,11 +371,12 @@ def is_exist_submit_log(quiz_id: int, user_idx: int):
         )
     )
 
-    with database.session_factory() as db:
-        return True if db.execute(stmt).scalar() != 0 else False
+    async with database.session_factory() as db:
+        result = await db.execute(stmt)
+        return True if result.scalar() != 0 else False
 
 
-def update_pre_save_data(quiz_id: int, user_idx: int, answer: str):
+async def update_pre_save_data(quiz_id: int, user_idx: int, answer: str):
     stmt = (
         update(PreSave)
         .where(
@@ -383,6 +386,62 @@ def update_pre_save_data(quiz_id: int, user_idx: int, answer: str):
         .values(answer=answer)
     )
 
-    with database.session_factory() as db:
-        db.execute(stmt)
-        db.commit()
+    async with database.session_factory() as db:
+        await db.execute(stmt)
+        await db.commit()
+
+
+async def get_final_answer_by_user_id_and_quiz_id(user_idx: int, quiz_id: int):
+    stmt = (
+        select(
+            QuestionLog.question_id,
+            QuestionLog.user_answer
+        )
+        .select_from(QuestionLog)
+        .join(Question, QuestionLog.question_id == Question.id)
+        .where(
+            QuestionLog.user_id == user_idx,
+            Question.quiz_id == quiz_id
+        )
+    )
+
+    async with database.session_factory() as db:
+        result = await db.execute(stmt)
+        answer_info = result.fetchall()
+        return answer_info if len(answer_info) != 0 else None
+
+
+async def quiz_select_count_by_id(quiz_id: int):
+    stmt = (
+        select(Quiz.s_count)
+        .where(Quiz.id == quiz_id)
+    )
+
+    async with database.session_factory() as db:
+        result = await db.execute(stmt)
+        return result.scalar()
+
+
+async def final_submit_user_answer(user_idx: int, requests: List[QuizSubmitRequest]):
+    async with database.session_factory() as db:
+        for request in requests:
+            question_id, answer = request.question_id, sorted(request.selection_ids)
+
+            result = await db.execute(
+                select(Selection.id)
+                .where(
+                    Selection.question_id == question_id,
+                    Selection.is_correct == True
+                )
+                .order_by(Selection.id)
+            )
+            real_answer = result.scalars().all()
+
+            db.add(QuestionLog(
+                user_id=user_idx,
+                question_id=question_id,
+                user_answer=json.dumps(answer),
+                is_correct=True if answer == real_answer else False
+            ))
+
+        await db.commit()
