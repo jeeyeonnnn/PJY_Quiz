@@ -9,7 +9,7 @@ from app.util.auth_handler import auth
 from app.util.response_handler import res
 from app.quiz import service
 
-router = APIRouter(tags=['QUIZ'], prefix='/quiz')
+router = APIRouter(tags=['☑️ QUIZ'], prefix='/quiz')
 
 @router.post(
     path='',
@@ -287,6 +287,48 @@ async def quiz_pre_save(
                 - question_id : 문제 PK
                 - selection_ids : 사용자가 정답이라고 택한 보기의 PK List
                 ''',
+    responses={
+        status.HTTP_201_CREATED: {
+            "description": "퀴즈 임시 저장 성공",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "message": "success"
+                    }
+                }
+            }
+        },
+        401: {
+            "description": "관리자 권한인 경우",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "message": "사용자 권한이 존재하지 않습니다."
+                    }
+                }
+            }
+        },
+        444: {
+            "description": "사용자가 해당 퀴즈를 최종 제출한 이력이 존재하는 경우",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "message": "해당 퀴즈의 최종 제출 이력이 있어 최종 제출이 불가능합니다."
+                    }
+                }
+            }
+        },
+        445: {
+            "description": "출제 문제 수와 답안 제출 문제 수가 일치하지 않은 경우",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "message": "출제 문제 수와 답안 제출 문제 수가 일치하지 않습니다."
+                    }
+                }
+            }
+        }
+    }
 )
 async def quiz_final_submit(
         quiz_id: int,

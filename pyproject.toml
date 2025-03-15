@@ -1,0 +1,21 @@
+[project]
+name = "pjy-quiz"
+version = "0.1.0"
+description = "[글로벌널리지] 백엔드 개발자 실무 과제 - 박지연"
+requires-python = ">=3.9"
+dependencies = [
+    "fastapi==0.115.11",
+    "PyJWT==2.4.0",
+    "python-dotenv==1.0.0",
+    "SQLAlchemy==2.0.39",
+    "uvicorn==0.34.0",
+    "asyncpg==0.30.0"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+# 패키지 모드를 비활성화
+package-mode = false

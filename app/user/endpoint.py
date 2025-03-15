@@ -5,7 +5,7 @@ from app.user import service
 from app.util.auth_handler import auth
 from app.util.response_handler import res
 
-router = APIRouter(tags=['USER'])
+router = APIRouter(tags=['☑️ USER'])
 
 @router.post(
     path="/sign-up",
